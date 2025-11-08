@@ -1,7 +1,8 @@
 import os
 import logging
 import telebot
-from openai import OpenAI
+import requests
+import json
 
 # ===== КОНФИГУРАЦИЯ =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -22,11 +23,41 @@ if not DEEPSEEK_API_KEY:
 # Создаем бота
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Инициализируем клиент DeepSeek
-client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com"
-)
+def ask_deepseek(question):
+    """Функция для запроса к DeepSeek API"""
+    url = "https://api.deepseek.com/chat/completions"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+    }
+    
+    data = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant"},
+            {"role": "user", "content": question}
+        ],
+        "max_tokens": 2000,
+        "temperature": 0.7
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+        
+    except requests.exceptions.RequestException as e:
+        logging.error(f"API Request error: {e}")
+        return "❌ Ошибка соединения с API"
+    except KeyError as e:
+        logging.error(f"API Response error: {e}")
+        return "❌ Ошибка в ответе API"
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        return "❌ Неожиданная ошибка"
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -52,8 +83,8 @@ def send_info(message):
 
 • 🤖 AI: DeepSeek API
 • 🚀 Хостинг: Render.com
-• 💬 Версия: 1.0
-• 📞 Поддержка: @username
+• 💬 Версия: 2.0
+• 📞 Стабильная версия
 
 Бот работает 24/7!
     """
@@ -68,18 +99,7 @@ def handle_message(message):
         bot.send_chat_action(message.chat.id, 'typing')
         
         # Используем DeepSeek API
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that responds in Russian unless asked otherwise."},
-                {"role": "user", "content": user_text},
-            ],
-            max_tokens=2000,
-            temperature=0.7,
-            stream=False
-        )
-        
-        answer = response.choices[0].message.content
+        answer = ask_deepseek(user_text)
         
         # Разбиваем длинные сообщения
         if len(answer) > 4000:
@@ -94,7 +114,10 @@ def handle_message(message):
         bot.reply_to(message, "❌ Произошла ошибка. Попробуйте еще раз через минуту.")
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     print("🚀 Запуск бота...")
     print("🤖 Бот запущен и готов к работе!")
     bot.infinity_polling()
